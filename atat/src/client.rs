@@ -100,7 +100,7 @@ where
             // compare the time of the last response or URC and ensure at least
             // `self.config.cmd_cooldown` ms have passed before sending a new
             // command
-            nb::block!(self.timer.try_wait()).ok();
+            nb::block!(self.timer.wait()).ok();
             let cmd_buf = cmd.as_bytes();
 
             if cmd_buf.len() < 50 {
@@ -113,9 +113,9 @@ where
             }
 
             for c in cmd_buf {
-                nb::block!(self.tx.try_write(c)).map_err(|_e| Error::Write)?;
+                nb::block!(self.tx.write(c)).map_err(|_e| Error::Write)?;
             }
-            nb::block!(self.tx.try_flush()).map_err(|_e| Error::Write)?;
+            nb::block!(self.tx.flush()).map_err(|_e| Error::Write)?;
             self.state = ClientState::AwaitingResponse;
         }
 
@@ -128,7 +128,7 @@ where
             Mode::Blocking => Ok(nb::block!(self.check_response(cmd))?),
             Mode::NonBlocking => self.check_response(cmd),
             Mode::Timeout => {
-                self.timer.try_start(cmd.max_timeout_ms()).ok();
+                self.timer.start(cmd.max_timeout_ms()).ok();
                 Ok(nb::block!(self.check_response(cmd))?)
             }
         }
@@ -136,7 +136,7 @@ where
 
     fn peek_urc_with<URC: AtatUrc, F: FnOnce(URC::Response) -> bool>(&mut self, f: F) {
         if let Some(urc) = self.urc_c.peek() {
-            self.timer.try_start(self.config.cmd_cooldown).ok();
+            self.timer.start(self.config.cmd_cooldown).ok();
             if let Some(urc) = URC::parse(urc) {
                 if !f(urc) {
                     return;
@@ -155,7 +155,7 @@ where
                 .map_err(nb::Error::from)
                 .and_then(|r| {
                     if let ClientState::AwaitingResponse = self.state {
-                        self.timer.try_start(self.config.cmd_cooldown).ok();
+                        self.timer.start(self.config.cmd_cooldown).ok();
                         self.state = ClientState::Idle;
                         Ok(r)
                     } else {
@@ -165,12 +165,12 @@ where
                     }
                 })
                 .map_err(|e| {
-                    self.timer.try_start(self.config.cmd_cooldown).ok();
+                    self.timer.start(self.config.cmd_cooldown).ok();
                     self.state = ClientState::Idle;
                     e
                 });
         } else if let Mode::Timeout = self.config.mode {
-            if self.timer.try_wait().is_ok() {
+            if self.timer.wait().is_ok() {
                 self.state = ClientState::Idle;
                 // Tell the parser to reset to initial state due to timeout
                 if self.com_p.enqueue(Command::Reset).is_err() {
@@ -223,13 +223,13 @@ mod test {
     impl CountDown for CdMock {
         type Error = core::convert::Infallible;
         type Time = u32;
-        fn try_start<T>(&mut self, _count: T) -> Result<(), Self::Error>
+        fn start<T>(&mut self, _count: T) -> Result<(), Self::Error>
         where
             T: Into<Self::Time>,
         {
             Ok(())
         }
-        fn try_wait(&mut self) -> nb::Result<(), Self::Error> {
+        fn wait(&mut self) -> nb::Result<(), Self::Error> {
             Ok(())
         }
     }
